@@ -1,0 +1,271 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        img { max-width: 100%; height: auto; display: block; margin: 10px 0; border: 1px solid #ccc; }
+        pre { background-color: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        code { font-family: Consolas, monospace; background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; }
+        h1, h2, h3 { color: #333; }
+        blockquote { border-left: 4px solid #ccc; margin: 0; padding-left: 10px; color: #666; }
+    </style>
+</head>
+<body>
+<h1>Spring Boot Library Management — Project Submission</h1>
+<h2>1. Entity Relationship Design</h2>
+<p>The application manages two entities: <strong>Author</strong> and <strong>Book</strong>.</p>
+<h3>Entities</h3>
+<table>
+<thead>
+<tr>
+<th>Entity</th>
+<th>Attributes</th>
+<th>JPA Annotations</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Author</code></td>
+<td><code>id</code> (PK), <code>name</code></td>
+<td><code>@Entity</code>, <code>@Id</code>, <code>@GeneratedValue</code>, <code>@OneToMany</code></td>
+</tr>
+<tr>
+<td><code>Book</code></td>
+<td><code>id</code> (PK), <code>title</code>, <code>genre</code>, <code>author</code> (FK)</td>
+<td><code>@Entity</code>, <code>@Id</code>, <code>@GeneratedValue</code>, <code>@ManyToOne</code>, <code>@JoinColumn</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Relationship</h3>
+<p><code>Author (1) ──────────────── (*) Book
+  One Author can write many Books.
+  Each Book belongs to exactly one Author.</code></p>
+<p><strong>JPA Mapping:</strong>
+```java
+// In Author.java
+@OneToMany(mappedBy = "author", cascade = CascadeType.ALL)
+private List<Book> books = new ArrayList&lt;&gt;();</p>
+<p>// In Book.java
+@ManyToOne
+@JoinColumn(name = "author_id", nullable = false)
+private Author author;
+```</p>
+<hr />
+<h2>2. Implementation Details</h2>
+<h3>2.1 Populate Database (DataInitializer)</h3>
+<p>On application startup, <code>DataInitializer</code> (implements <code>CommandLineRunner</code>) seeds the database with 10 Authors and 10 Books if the author table is empty.</p>
+<p><code>java
+@Component
+public class DataInitializer implements CommandLineRunner {
+    @Override
+    public void run(String... args) {
+        if (authorRepository.count() == 0) {
+            for (int i = 1; i &lt;= 10; i++) {
+                Author a = authorRepository.save(new Author("Author " + i));
+                bookRepository.save(new Book("Book Title " + i, genre, a));
+            }
+        }
+    }
+}</code></p>
+<p><strong>Result:</strong> 10 rows in <code>AUTHOR</code> table, 10 rows in <code>BOOK</code> table on first run.</p>
+<hr />
+<h3>2.2 Create Operation</h3>
+<p><strong>Controller:</strong>
+<code>java
+@PostMapping("/library/add")
+public String addBook(@RequestParam String title,
+                      @RequestParam String genre,
+                      @RequestParam Long authorId, Model model) {
+    try {
+        libraryService.addBook(title, genre, authorId);
+        return "redirect:/library";
+    } catch (DataIntegrityViolationException e) {
+        model.addAttribute("error", "Data integrity violation: " + e.getMessage());
+        return "add";
+    }
+}</code></p>
+<p><strong>JSP Form (<code>add.jsp</code>):</strong> Contains <code>&lt;input&gt;</code> for title and genre, <code>&lt;select&gt;</code> dropdown populated with all authors via JSTL <code>&lt;c:forEach&gt;</code>.</p>
+<blockquote>
+<p>[!NOTE]
+Exception handling catches <code>DataIntegrityViolationException</code> (e.g., null author FK) and redisplays the form with an error message — the user never sees a blank error page.</p>
+</blockquote>
+<hr />
+<h3>2.3 Read Operation</h3>
+<p><strong>Custom INNER JOIN Query (Repository layer):</strong>
+<code>java
+// BookRepository.java
+@Query("SELECT new com.example.library.dto.BookAuthorDTO(b.id, b.title, b.genre, a.name) " +
+       "FROM Book b INNER JOIN b.author a")
+List&lt;BookAuthorDTO&gt; findBooksWithAuthors();</code></p>
+<p><strong>DTO:</strong>
+<code>java
+public class BookAuthorDTO {
+    private Long bookId;
+    private String title;
+    private String genre;
+    private String authorName;
+    // constructor + getters
+}</code></p>
+<p><strong>Controller:</strong>
+<code>java
+@GetMapping("/library")
+public String listBooks(Model model) {
+    model.addAttribute("books", libraryService.getBooksWithAuthors());
+    return "list";
+}</code></p>
+<p><strong>JSP (<code>list.jsp</code>):</strong> Renders a styled HTML table using JSTL <code>&lt;c:forEach var="book" items="${books}"&gt;</code> with columns: ID, Title, Genre, Author, Action (Edit button).</p>
+<hr />
+<h3>2.4 Update Operation</h3>
+<p><strong>Controller (GET — show pre-filled form):</strong>
+<code>java
+@GetMapping("/library/update/{id}")
+public String showUpdateForm(@PathVariable Long id, Model model) {
+    Book book = libraryService.getBookById(id);
+    model.addAttribute("book", book);
+    model.addAttribute("authors", libraryService.getAllAuthors());
+    return "update";
+}</code></p>
+<p><strong>Controller (POST — save changes):</strong>
+<code>java
+@PostMapping("/library/update/{id}")
+public String updateBook(@PathVariable Long id, @RequestParam String title,
+                         @RequestParam String genre, @RequestParam Long authorId, Model model) {
+    libraryService.updateBook(id, title, genre, authorId);
+    return "redirect:/library";
+}</code></p>
+<p><strong>JSP (<code>update.jsp</code>):</strong> Pre-fills Title and Genre fields using EL (<code>${book.title}</code>, <code>${book.genre}</code>). Author dropdown pre-selects the current author using <code>${author.id == book.author.id ? 'selected' : ''}</code>.</p>
+<hr />
+<h2>3. Screenshots</h2>
+<h3>READ — Book List Page (<code>/library</code>)</h3>
+<p>Shows all 10 seeded books (+ any added) with Author name via INNER JOIN, and Edit buttons.</p>
+<p><img alt="Book List Page" src="file:///C:/Users/kumat/.gemini/antigravity/brain/29cfa04c-b517-40f8-a57e-c448db837b4a/book_list.png" /></p>
+<hr />
+<h3>CREATE — Add New Book (<code>/library/add</code>)</h3>
+<p>Form with Title, Genre text inputs and Author dropdown. Save button submits via POST.</p>
+<p><img alt="Add Book Form" src="file:///C:/Users/kumat/.gemini/antigravity/brain/29cfa04c-b517-40f8-a57e-c448db837b4a/add_form.png" /></p>
+<hr />
+<h3>UPDATE — Edit Book (<code>/library/update/{id}</code>)</h3>
+<p>Pre-filled form with existing values. Genre changed to "Mystery" and submitted successfully.</p>
+<p><img alt="Update Book Form" src="file:///C:/Users/kumat/.gemini/antigravity/brain/29cfa04c-b517-40f8-a57e-c448db837b4a/update_form.png" /></p>
+<hr />
+<h2>4. Unit Tests</h2>
+<p>All <strong>3 tests pass</strong> (<code>mvnw test</code> → <code>BUILD SUCCESS</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Test Class</th>
+<th>Framework</th>
+<th>What It Tests</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BookRepositoryTest</code></td>
+<td><code>@DataJpaTest</code> + JUnit 5</td>
+<td>Custom <code>findBooksWithAuthors()</code> INNER JOIN query</td>
+</tr>
+<tr>
+<td><code>LibraryServiceTest</code></td>
+<td>Mockito + JUnit 5</td>
+<td><code>addBook()</code> business logic with mocked repositories</td>
+</tr>
+<tr>
+<td><code>LibraryApplicationTests</code></td>
+<td>Spring Boot Test</td>
+<td>Spring context loads without errors</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Sample — Service Test (Mockito):</strong>
+```java
+@Test
+void testAddBook() {
+    when(authorRepository.findById(1L)).thenReturn(Optional.of(author));
+    when(bookRepository.save(any(Book.class))).thenReturn(book);</p>
+<pre><code>Book saved = libraryService.addBook("Test Book", "Fiction", 1L);
+
+assertNotNull(saved);
+assertEquals("Test Book", saved.getTitle());
+assertEquals("John Doe", saved.getAuthor().getName());
+</code></pre>
+<p>}
+```</p>
+<p><strong>Sample — Repository Test (DataJpaTest):</strong>
+```java
+@Test
+void testFindBooksWithAuthors() {
+    Author author = authorRepository.save(new Author("Jane Austen"));
+    bookRepository.save(new Book("Pride and Prejudice", "Romance", author));</p>
+<pre><code>List&lt;BookAuthorDTO&gt; result = bookRepository.findBooksWithAuthors();
+
+assertFalse(result.isEmpty());
+assertEquals("Pride and Prejudice", result.get(0).getTitle());
+assertEquals("Jane Austen", result.get(0).getAuthorName());
+</code></pre>
+<p>}
+```</p>
+<hr />
+<h2>5. Challenges Faced &amp; Solutions</h2>
+<table>
+<thead>
+<tr>
+<th>Challenge</th>
+<th>How It Was Solved</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>JSP not rendering in Spring Boot 3.x</strong></td>
+<td>Added <code>tomcat-embed-jasper</code> and <code>jakarta.servlet.jsp.jstl</code> (Jakarta EE) dependencies to <code>pom.xml</code>. Old <code>javax.*</code> versions are incompatible with Spring Boot 3.</td>
+</tr>
+<tr>
+<td><strong>INNER JOIN returning entity fields, not strings</strong></td>
+<td>Created <code>BookAuthorDTO</code> with a JPQL constructor expression: <code>SELECT new com.example.library.dto.BookAuthorDTO(...)</code>. This lets JPA project query results directly into a DTO.</td>
+</tr>
+<tr>
+<td><strong>H2 Dialect warning</strong></td>
+<td>Removed the explicit <code>spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect</code> from <code>application.properties</code> — Hibernate 6 auto-detects it.</td>
+</tr>
+<tr>
+<td><strong>Root URL 404</strong></td>
+<td>Added <code>@GetMapping("/")</code> that returns <code>redirect:/library</code> so users landing on the root are forwarded automatically.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>6. Project Structure Summary</h2>
+<p><code>library-management/
+├── pom.xml
+├── README.md
+├── docs/screenshots/          ← book_list.png, add_form.png, update_form.png
+└── src/
+    ├── main/
+    │   ├── java/com/example/library/
+    │   │   ├── LibraryApplication.java
+    │   │   ├── config/DataInitializer.java
+    │   │   ├── controller/LibraryController.java
+    │   │   ├── dto/BookAuthorDTO.java
+    │   │   ├── entity/Author.java, Book.java
+    │   │   ├── repository/AuthorRepository.java, BookRepository.java
+    │   │   └── service/LibraryService.java
+    │   ├── resources/application.properties
+    │   └── webapp/WEB-INF/views/
+    │       ├── add.jsp, list.jsp, update.jsp
+    └── test/java/com/example/library/
+        ├── BookRepositoryTest.java
+        ├── LibraryServiceTest.java
+        └── LibraryApplicationTests.java</code></p>
+<hr />
+<h2>7. GitHub URL</h2>
+<p><strong>https://github.com/TejasKumat8/BooksAuth</strong></p>
+<p>To push:
+<code>bash
+git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+git branch -M main
+git push -u origin main</code></p>
+</body>
+</html>
