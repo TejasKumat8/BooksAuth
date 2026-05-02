@@ -1,35 +1,45 @@
 package com.example.library.controller;
 
-import com.example.library.entity.Author;
 import com.example.library.entity.Book;
 import com.example.library.service.LibraryService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.dao.DataIntegrityViolationException;
 
 @Controller
-@RequestMapping("/library")
 public class LibraryController {
 
     @Autowired
     private LibraryService libraryService;
 
-    @GetMapping
+    // Redirect root to /library
+    @GetMapping("/")
+    public String root() {
+        return "redirect:/library";
+    }
+
+    // READ – list all books with authors (INNER JOIN)
+    @GetMapping("/library")
     public String listBooks(Model model) {
         model.addAttribute("books", libraryService.getBooksWithAuthors());
         return "list";
     }
 
-    @GetMapping("/add")
+    // CREATE – show form
+    @GetMapping("/library/add")
     public String showAddForm(Model model) {
         model.addAttribute("authors", libraryService.getAllAuthors());
         return "add";
     }
 
-    @PostMapping("/add")
-    public String addBook(@RequestParam String title, @RequestParam String genre, @RequestParam Long authorId, Model model) {
+    // CREATE – handle form submission
+    @PostMapping("/library/add")
+    public String addBook(@RequestParam String title,
+                          @RequestParam String genre,
+                          @RequestParam Long authorId,
+                          Model model) {
         try {
             libraryService.addBook(title, genre, authorId);
             return "redirect:/library";
@@ -44,8 +54,9 @@ public class LibraryController {
         }
     }
 
-    @GetMapping("/update/{id}")
-    public String showUpdateForm(@PathVariable("id") Long id, Model model) {
+    // UPDATE – show pre-filled form
+    @GetMapping("/library/update/{id}")
+    public String showUpdateForm(@PathVariable Long id, Model model) {
         Book book = libraryService.getBookById(id);
         if (book == null) {
             return "redirect:/library";
@@ -55,8 +66,13 @@ public class LibraryController {
         return "update";
     }
 
-    @PostMapping("/update/{id}")
-    public String updateBook(@PathVariable("id") Long id, @RequestParam String title, @RequestParam String genre, @RequestParam Long authorId, Model model) {
+    // UPDATE – handle submission
+    @PostMapping("/library/update/{id}")
+    public String updateBook(@PathVariable Long id,
+                             @RequestParam String title,
+                             @RequestParam String genre,
+                             @RequestParam Long authorId,
+                             Model model) {
         try {
             libraryService.updateBook(id, title, genre, authorId);
             return "redirect:/library";
